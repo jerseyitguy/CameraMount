@@ -180,16 +180,22 @@ void handleFocus() {
 }
 
 void handleSnap() {
-  Serial.println("Picture button pressed!");
+  Serial.println("Picture button pressed! Sequencing...");
   
-  // A real camera needs the Focus wire connected to ground to fire the Shutter
-  digitalWrite(FOCUS_PIN, HIGH);   // Engage Focus Transistor
-  digitalWrite(SHUTTER_PIN, HIGH); // Engage Shutter Transistor
+  // 1. Half-press the button (Engage Focus)
+  digitalWrite(FOCUS_PIN, HIGH);   
   
-  // Hold the shutter down for 150 milliseconds to ensure the camera registers it
-  delay(150); 
+  // Wait 800 milliseconds to give the Nikon lens time to actually lock focus
+  // (If you are in a dark room or the subject is far, you might even need to increase this to 1000)
+  delay(2000); 
   
-  // Release both
+  // 2. Full-press the button (Engage Shutter while keeping Focus held down)
+  digitalWrite(SHUTTER_PIN, HIGH); 
+  
+  // Hold the shutter down for 200 milliseconds to ensure the camera registers the shot
+  delay(2000); 
+  
+  // 3. Release both
   digitalWrite(SHUTTER_PIN, LOW); 
   digitalWrite(FOCUS_PIN, LOW); 
   
