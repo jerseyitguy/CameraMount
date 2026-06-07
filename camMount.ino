@@ -3,8 +3,10 @@
 #include <HardwareSerial.h>
 
 // --- Hardware & Protocol Setup ---
-#define TX_PIN 4
-#define RX_PIN 5
+// WARNING: Pins 4 and 5 conflict with JTAG on the ESP32-C3! 
+// Change these back to 10 and 8 if the camera stops moving.
+#define TX_PIN 10  // Safe pin for ESP32-C3
+#define RX_PIN 8   // Safe pin for ESP32-C3
 HardwareSerial CamSerial(1); 
 
 #define CHANNEL   0x60
@@ -15,6 +17,11 @@ HardwareSerial CamSerial(1);
 
 #define PAN_FAST  0xA8
 #define TILT_FAST 0x58
+
+// --- Camera Shutter Setup ---
+#define FOCUS_PIN 2    // Controls Transistor 1 (Black Wire)
+#define SHUTTER_PIN 3  // Controls Transistor 2 (Red Wire)
+// --- Camera Focus and shutter - White + Black = focus ----- White + Black + Red = Photo 
 
 // --- Wi-Fi Setup ---
 const char* ssid = "Corbans_Camera";   
@@ -29,7 +36,7 @@ const char* htmlPage = R"rawliteral(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>Corbans Camera</title>
+  <title>Zifon Control</title>
   <style>
     /* Lock the page exactly to the visible window, stopping Chrome from pushing it down */
     html, body {
@@ -88,34 +95,29 @@ const char* htmlPage = R"rawliteral(
       border-color: #a71d2a;
     }
 
-    /* Refresh Button Styling (Slightly smaller text) */
-    .refresh {
-      font-size: 8vmin;
-      background-color: #222;
-      border-color: #444;
-    }
-    .refresh:active {
-      background-color: #555;
-      border-color: #777;
-    }
+    /* Refresh and Focus Button Styling */
+    .small-btn { font-size: 8vmin; background-color: #222; border-color: #444; font-weight: bold;}
+    .small-btn:active { background-color: #555; border-color: #777; }
+    
+    .focus:active { background-color: #28a745; border-color: #1e7e34; } /* Turns green when focusing */
     
     /* Grid Placement */
     .up { grid-column: 2; grid-row: 1; }
     .left { grid-column: 1; grid-row: 2; }
     .center { grid-column: 2; grid-row: 2; } 
     .right { grid-column: 3; grid-row: 2; }
-    .refresh { grid-column: 1; grid-row: 3; } /* Bottom Left */
+    .refresh { grid-column: 1; grid-row: 3; } 
     .down { grid-column: 2; grid-row: 3; }
+    .focus { grid-column: 3; grid-row: 3; } 
   </style>
   <script>
-    // Send movement commands
     function startMove(dir) { fetch('/move?dir=' + dir); }
     function stopMove() { fetch('/stop'); }
     
-    // Send picture command
+    function startFocus() { fetch('/focus?state=on'); }
+    function stopFocus() { fetch('/focus?state=off'); }
     function takePicture() { fetch('/snap'); }
     
-    // Completely disable right-click menus and long-press text selection
     document.addEventListener('contextmenu', event => event.preventDefault());
   </script>
 </head>
@@ -128,9 +130,11 @@ const char* htmlPage = R"rawliteral(
     
     <div class="btn right" onpointerdown="startMove('right')" onpointerup="stopMove()" onpointerleave="stopMove()">&#9654;</div>
     
-    <div class="btn refresh" onpointerdown="location.reload()">&#8635;</div>
+    <div class="btn small-btn refresh" onpointerdown="location.reload()">&#8635;</div>
     
     <div class="btn down" onpointerdown="startMove('down')" onpointerup="stopMove()" onpointerleave="stopMove()">&#9660;</div>
+    
+    <div class="btn small-btn focus" onpointerdown="startFocus()" onpointerup="stopFocus()" onpointerleave="stopFocus()">AF</div>
   </div>
 </body>
 </html>
@@ -163,13 +167,43 @@ void handleStop() {
   server.send(200, "text/plain", "Stopped");
 }
 
+void handleFocus() {
+  String state = server.arg("state");
+  if (state == "on") {
+    digitalWrite(FOCUS_PIN, HIGH); // Engage Transistor 1
+    Serial.println("Focusing...");
+  } else {
+    digitalWrite(FOCUS_PIN, LOW);  // Release Transistor 1
+    Serial.println("Focus Released.");
+  }
+  server.send(200, "text/plain", "Focus " + state);
+}
+
 void handleSnap() {
   Serial.println("Picture button pressed!");
+  
+  // A real camera needs the Focus wire connected to ground to fire the Shutter
+  digitalWrite(FOCUS_PIN, HIGH);   // Engage Focus Transistor
+  digitalWrite(SHUTTER_PIN, HIGH); // Engage Shutter Transistor
+  
+  // Hold the shutter down for 150 milliseconds to ensure the camera registers it
+  delay(150); 
+  
+  // Release both
+  digitalWrite(SHUTTER_PIN, LOW); 
+  digitalWrite(FOCUS_PIN, LOW); 
+  
   server.send(200, "text/plain", "Snap!");
 }
 
 void setup() {
   Serial.begin(115200);
+
+  // Initialize Camera Pins
+  pinMode(FOCUS_PIN, OUTPUT);
+  digitalWrite(FOCUS_PIN, LOW);
+  pinMode(SHUTTER_PIN, OUTPUT);
+  digitalWrite(SHUTTER_PIN, LOW);
 
   // Initialize Speed Settings
   CamSerial.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
@@ -189,7 +223,6 @@ void setup() {
   WiFi.softAP(ssid, password);
   
   // *** SOFTWARE FIX FOR BROWNOUTS ***
-  // Lowers Wi-Fi transmit power to drastically reduce current spikes
   WiFi.setTxPower(WIFI_POWER_8_5dBm); 
   
   IPAddress IP = WiFi.softAPIP();
@@ -200,6 +233,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/move", handleMove);
   server.on("/stop", handleStop);
+  server.on("/focus", handleFocus);
   server.on("/snap", handleSnap);
   server.begin();
   Serial.println("Web server started!");
