@@ -19,8 +19,8 @@ HardwareSerial CamSerial(1);
 #define TILT_FAST 0x58
 
 // --- Camera Shutter Setup ---
-#define FOCUS_PIN 2    // Controls Transistor 1 (Black Wire)
-#define SHUTTER_PIN 3  // Controls Transistor 2 (Red Wire)
+#define FOCUS_PIN 0    // Controls Transistor 1 (Black Wire)
+#define SHUTTER_PIN 2  // Controls Transistor 2 (Red Wire)
 // --- Camera Focus and shutter - White + Black = focus ----- White + Black + Red = Photo 
 
 // --- Wi-Fi Setup ---
